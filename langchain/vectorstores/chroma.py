@@ -2,8 +2,19 @@
 from __future__ import annotations
 
 import logging
+import math
 import uuid
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple, Type
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Tuple,
+    Type,
+)
 
 import numpy as np
 
@@ -39,6 +50,11 @@ def _results_to_docs_and_scores(results: Any) -> List[Tuple[Document, float]]:
     ]
 
 
+def _default_relevance_score_fn(score: float) -> float:
+    """Return a similarity score on a scale [0, 1]."""
+    return 1.0 - score / math.sqrt(2)
+
+
 class Chroma(VectorStore):
     """Wrapper around ChromaDB embeddings platform.
 
@@ -60,6 +76,7 @@ class Chroma(VectorStore):
         self,
         collection_name: str = _LANGCHAIN_DEFAULT_COLLECTION_NAME,
         embedding_function: Optional[Embeddings] = None,
+        relevance_score_fn: Callable[[float], float] = _default_relevance_score_fn,
         persist_directory: Optional[str] = None,
         client_settings: Optional[chromadb.config.Settings] = None,
         collection_metadata: Optional[Dict] = None,
@@ -90,6 +107,7 @@ class Chroma(VectorStore):
             self._client = chromadb.Client(self._client_settings)
 
         self._embedding_function = embedding_function
+        self.relevance_score_fn = relevance_score_fn
         self._persist_directory = (
             self._client_settings.persist_directory or persist_directory
         )
@@ -256,7 +274,8 @@ class Chroma(VectorStore):
         k: int = 4,
         **kwargs: Any,
     ) -> List[Tuple[Document, float]]:
-        return self.similarity_search_with_score(query, k, **kwargs)
+        docs_and_scores = self.similarity_search_with_score(query, k, **kwargs)
+        return [(doc, self.relevance_score_fn(score)) for doc, score in docs_and_scores]
 
     def max_marginal_relevance_search_by_vector(
         self,
